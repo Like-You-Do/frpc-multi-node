@@ -132,7 +132,7 @@ const serverFormInitialValues = {
 }
 
 const tunnelFormInitialValues = {
-  type: 'stcp',
+  type: 'tcp',
   bindAddrType: 'ip',
   bindAddr: '127.0.0.1',
   localIPType: 'ip',
@@ -281,6 +281,7 @@ function createServerFromValues (values, existingServer) {
     ip,
     port: values.port,
     token,
+    enabled: existingServer?.enabled !== false,
     extra: normalizeExtraFields(values.extraFields)
   }
 }
@@ -390,6 +391,31 @@ function ServerSettings ({
     messageApi.success(`已删除 ${targetServer.configFile}`)
   }
 
+  const handleToggleServer = (targetServer, enabled) => {
+    const nextServers = servers.map((server) =>
+      server.id === targetServer.id ? { ...server, enabled } : server
+    )
+    setServers(nextServers)
+
+    if (!enabled) {
+      const serverTunnels = tunnels.filter((tunnel) => tunnel.serverId === targetServer.id)
+      serverTunnels.forEach((tunnel) => {
+        window.services?.stopFrpcTunnel?.(tunnel.key)
+      })
+      setRunningTunnels((current) => {
+        const next = { ...current }
+        serverTunnels.forEach((tunnel) => {
+          delete next[tunnel.key]
+        })
+        return next
+      })
+      messageApi.success('已禁用服务端并停止相关隧道')
+    } else {
+      persistServerConfig({ ...targetServer, enabled }, tunnels)
+      messageApi.success('已启用服务端')
+    }
+  }
+
   const columns = [
     {
       title: '名称',
@@ -423,9 +449,15 @@ function ServerSettings ({
       title: '操作',
       key: 'action',
       fixed: 'right',
-      width: 96,
+      width: 160,
       render: (_, server) => (
-        <Space size={4}>
+        <Space size={6}>
+          <Switch
+            checked={server.enabled !== false}
+            checkedChildren='启用'
+            onChange={(checked) => handleToggleServer(server, checked)}
+            unCheckedChildren='禁用'
+          />
           <Tooltip title='修改'>
             <Button
               aria-label='修改服务端'
@@ -586,7 +618,7 @@ function TunnelSettings ({
   const localIPType = Form.useWatch('localIPType', form) || tunnelFormInitialValues.localIPType
   const bindAddrType = Form.useWatch('bindAddrType', form) || tunnelFormInitialValues.bindAddrType
   const serverOptions = servers.map((server) => ({
-    label: `${server.ip}:${server.port} (${server.configFile})`,
+    label: `${server.name} (${server.ip}:${server.port})`,
     value: server.id
   }))
 
@@ -669,6 +701,11 @@ function TunnelSettings ({
       return
     }
 
+    if (checked && server.enabled === false) {
+      messageApi.warning('服务端已禁用，请先启用服务端')
+      return
+    }
+
     if (checked && !startTunnel) {
       messageApi.warning('当前浏览器环境无法启动 frpc 二进制文件，请在 uTools 插件环境中使用')
       return
@@ -695,11 +732,17 @@ function TunnelSettings ({
 
   const openLogModal = (tunnel) => {
     const content = window.services?.getFrpcTunnelLog?.(tunnel.key) || '暂无日志'
-    setLogModal({ content, open: true, title: `${tunnel.name} 日志` })
+    setLogModal({ content, open: true, title: `${tunnel.name} 日志`, tunnelKey: tunnel.key })
   }
 
   const closeLogModal = () => {
     setLogModal((current) => ({ ...current, open: false }))
+  }
+
+  const clearLog = () => {
+    if (!logModal.tunnelKey) return
+    window.services?.clearFrpcTunnelLog?.(logModal.tunnelKey)
+    setLogModal((current) => ({ ...current, content: '' }))
   }
 
   const columns = [
@@ -886,7 +929,7 @@ function TunnelSettings ({
               )}
         </Form>
       </Drawer>
-      <Drawer extra={<Button onClick={closeLogModal}>关闭</Button>} onClose={closeLogModal} open={logModal.open} title={logModal.title} width={560}>
+      <Drawer extra={<Space><Button disabled={!logModal.tunnelKey} onClick={clearLog}>清空日志</Button><Button onClick={closeLogModal}>关闭</Button></Space>} onClose={closeLogModal} open={logModal.open} title={logModal.title} width={560}>
         <pre className='log-content'>{logModal.content}</pre>
       </Drawer>
     </div>
@@ -950,9 +993,12 @@ function EnvironmentSettings ({ messageApi }) {
                     <Text type='danger'>未找到</Text>
                     <div style={{ marginTop: 8 }}>
                       <Button
-                        href='https://github.com/fatedier/frp/releases'
                         icon={<DownloadOutlined />}
-                        target='_blank'
+                        onClick={() => {
+                          const url = 'https://github.com/fatedier/frp/releases'
+                          navigator.clipboard.writeText(url)
+                          messageApi.success('已复制下载链接')
+                        }}
                         type='link'
                       >
                         从 GitHub 下载 frp

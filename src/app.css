@@ -182,7 +182,7 @@
 }
 
 .log-content {
-  min-height: 240px;
+  min-height: 300px;
   max-height: calc(100vh - 200px);
   margin: 0;
   padding: 12px;
@@ -192,8 +192,7 @@
   border-radius: 6px;
   font-size: 12px;
   line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
 }
 
 .kv-tag {

@@ -11,21 +11,18 @@ function getUserDataPath () {
   return window.utools?.getPath ? window.utools.getPath('userData') : process.cwd()
 }
 
+function getFrpcBinDir () {
+  return path.join(getUserDataPath(), 'frp-multi-node')
+}
+
 function getFrpcPath () {
-  const candidates = [
-    path.join(__dirname, '..', frpcBinName),
-    path.join(process.cwd(), frpcBinName),
-    path.join(process.cwd(), 'public', frpcBinName),
-    path.join(process.cwd(), 'dist', frpcBinName)
-  ]
+  const frpcPath = path.join(getFrpcBinDir(), frpcBinName)
 
-  const frpcPath = candidates.find((candidate) => fs.existsSync(candidate))
-
-  if (!frpcPath) {
-    throw new Error('未找到 ' + frpcBinName)
+  if (fs.existsSync(frpcPath)) {
+    return frpcPath
   }
 
-  return frpcPath
+  throw new Error('未找到 ' + frpcBinName)
 }
 
 function pushFrpcLog (processInfo, text) {
@@ -52,13 +49,16 @@ window.services = {
     return filePath
   },
   writeFrpcToml (content, fileName = 'frpc.toml') {
-    const basePath = getUserDataPath()
+    const basePath = getFrpcBinDir()
+    if (!fs.existsSync(basePath)) {
+      fs.mkdirSync(basePath, { recursive: true })
+    }
     const filePath = path.join(basePath, fileName)
     fs.writeFileSync(filePath, content, { encoding: 'utf-8' })
     return filePath
   },
   deleteFrpcToml (fileName) {
-    const filePath = path.join(getUserDataPath(), fileName)
+    const filePath = path.join(getFrpcBinDir(), fileName)
     if (fs.existsSync(filePath)) {
       fs.unlinkSync(filePath)
     }
@@ -74,7 +74,7 @@ window.services = {
       }
     }
 
-    const basePath = getUserDataPath()
+    const basePath = getFrpcBinDir()
     const configPath = path.join(basePath, fileName)
     const frpcPath = getFrpcPath()
     const processInfo = {
@@ -130,6 +130,13 @@ window.services = {
 
     return processInfo.logs.join('\n')
   },
+  clearFrpcTunnelLog (tunnelKey) {
+    const processInfo = frpcProcesses.get(tunnelKey)
+
+    if (!processInfo) return
+
+    processInfo.logs.length = 0
+  },
   getFrpcTunnelStatus (tunnelKey) {
     const processInfo = frpcProcesses.get(tunnelKey)
 
@@ -143,7 +150,7 @@ window.services = {
     return filePath
   },
   getConfigDir () {
-    return getUserDataPath()
+    return getFrpcBinDir()
   },
   getFrpcExePath () {
     try {
@@ -161,7 +168,11 @@ window.services = {
     }
   },
   replaceFrpcExe (srcPath) {
-    const destPath = path.join(__dirname, '..', frpcBinName)
+    const binDir = getFrpcBinDir()
+    if (!fs.existsSync(binDir)) {
+      fs.mkdirSync(binDir, { recursive: true })
+    }
+    const destPath = path.join(binDir, frpcBinName)
     fs.copyFileSync(srcPath, destPath)
     if (!isWin32) {
       fs.chmodSync(destPath, 0o755)
