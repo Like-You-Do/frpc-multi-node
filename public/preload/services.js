@@ -1,8 +1,11 @@
 const fs = require('node:fs')
 const path = require('node:path')
-const { spawn } = require('node:child_process')
+const { execSync, spawn } = require('node:child_process')
 
 const frpcProcesses = new Map()
+
+const isWin32 = process.platform === 'win32'
+const frpcBinName = isWin32 ? 'frpc.exe' : 'frpc'
 
 function getUserDataPath () {
   return window.utools?.getPath ? window.utools.getPath('userData') : process.cwd()
@@ -10,16 +13,16 @@ function getUserDataPath () {
 
 function getFrpcPath () {
   const candidates = [
-    path.join(__dirname, '..', 'frpc.exe'),
-    path.join(process.cwd(), 'frpc.exe'),
-    path.join(process.cwd(), 'public', 'frpc.exe'),
-    path.join(process.cwd(), 'dist', 'frpc.exe')
+    path.join(__dirname, '..', frpcBinName),
+    path.join(process.cwd(), frpcBinName),
+    path.join(process.cwd(), 'public', frpcBinName),
+    path.join(process.cwd(), 'dist', frpcBinName)
   ]
 
   const frpcPath = candidates.find((candidate) => fs.existsSync(candidate))
 
   if (!frpcPath) {
-    throw new Error('未找到 frpc.exe')
+    throw new Error('未找到 ' + frpcBinName)
   }
 
   return frpcPath
@@ -85,7 +88,7 @@ window.services = {
 
     const child = spawn(frpcPath, ['-c', configPath], {
       cwd: basePath,
-      windowsHide: true
+      windowsHide: isWin32
     })
 
     processInfo.child = child
@@ -138,5 +141,40 @@ window.services = {
     const filePath = path.join(window.utools.getPath('downloads'), Date.now().toString() + '.' + matchs[1])
     fs.writeFileSync(filePath, base64Url.substring(matchs[0].length), { encoding: 'base64' })
     return filePath
+  },
+  getConfigDir () {
+    return getUserDataPath()
+  },
+  getFrpcExePath () {
+    try {
+      return getFrpcPath()
+    } catch {
+      return null
+    }
+  },
+  checkFrpcAvailable () {
+    try {
+      const frpcPath = getFrpcPath()
+      return fs.statSync(frpcPath).isFile()
+    } catch {
+      return false
+    }
+  },
+  replaceFrpcExe (srcPath) {
+    const destPath = path.join(__dirname, '..', frpcBinName)
+    fs.copyFileSync(srcPath, destPath)
+    if (!isWin32) {
+      fs.chmodSync(destPath, 0o755)
+    }
+    return destPath
+  },
+  getFrpcVersion () {
+    try {
+      const frpcPath = getFrpcPath()
+      const output = execSync(`"${frpcPath}" -v`, { encoding: 'utf-8', windowsHide: true }).trim()
+      return output
+    } catch (e) {
+      return e.stderr?.trim() || e.message || null
+    }
   }
 }

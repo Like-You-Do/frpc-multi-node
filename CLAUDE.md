@@ -39,7 +39,7 @@ Process logs are capped at 1000 lines per tunnel. `frpc.exe` is located by searc
 Single-page app with sidebar navigation. All state lives in `App.jsx` and is passed down as props. Three pages:
 
 - **隧道设置 (Tunnel Settings)** — CRUD for tunnels, start/stop switches, log viewer
-- **服务器设置 (Server Settings)** — CRUD for servers with extra key-value fields
+- **服务端设置 (Server Settings)** — CRUD for servers with extra key-value fields
 - **环境设置 (Environment Settings)** — placeholder page
 
 ### Data model

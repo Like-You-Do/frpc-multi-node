@@ -1,45 +1,39 @@
 {
+  "name": "FRP 多节点客户端",
+  "version": "1.0.0",
+  "description": "管理多个 FRP 客户端连接，配置服务端和隧道，生成 frpc.toml 并启动隧道",
   "main": "index.html",
   "preload": "preload/services.js",
-  "logo": "logo.png",
+  "logo": "my-logo.png",
   "development": {
     "main": "http://localhost:5173"
   },
   "features": [
     {
-      "code": "hello",
-      "explain": "这是插件应用的第一个功能",
+      "code": "tunnel",
+      "explain": "管理 FRP 隧道：新增、编辑、启停隧道连接",
       "cmds": [
-        "你好",
-        "hello"
+        "隧道设置",
+        "隧道",
+        "tunnel"
       ]
     },
     {
-      "code": "read",
-      "explain": "功能指令+匹配指令示例，使用 node.js 能力读文件",
+      "code": "server",
+      "explain": "管理 FRP 服务端：配置服务端地址、端口和认证信息",
       "cmds": [
-        "读文件",
-        {
-          "type": "files",
-          "fileType": "file",
-          "maxLength": 1,
-          "label": "读文件"
-        }
+        "服务端设置",
+        "服务端",
+        "server"
       ]
     },
     {
-      "code": "write",
-      "explain": "匹配指令示例，使用 node.js 能力写文件",
-      "mainHide": true,
+      "code": "environment",
+      "explain": "查看和配置运行环境：frpc 二进制文件路径、版本、替换运行文件",
       "cmds": [
-        {
-          "type": "over",
-          "label": "保存为文件"
-        },
-        {
-          "type": "img",
-          "label": "保存为文件"
-        }
+        "设置",
+        "环境设置",
+        "settings"
       ]
     }
   ]

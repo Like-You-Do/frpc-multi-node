@@ -109,6 +109,25 @@
   padding-top: 8px;
 }
 
+.address-row {
+  display: grid;
+  grid-template-columns: 100px minmax(0, 1fr) 120px;
+  gap: 14px;
+  align-items: start;
+}
+
+.address-type-select {
+  width: 100%;
+}
+
+.address-input-item {
+  min-width: 0;
+}
+
+.port-input {
+  width: 100%;
+}
+
 .form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 160px;
@@ -164,7 +183,7 @@
 
 .log-content {
   min-height: 240px;
-  max-height: 460px;
+  max-height: calc(100vh - 200px);
   margin: 0;
   padding: 12px;
   overflow: auto;
@@ -215,7 +234,8 @@
 
   .form-grid,
   .tunnel-form-grid,
-  .extra-field-row {
+  .extra-field-row,
+  .address-row {
     grid-template-columns: 1fr;
   }
 
