@@ -1,0 +1,17 @@
+serverAddr = "114.55.234.235"
+serverPort = 7001
+
+auth.method = "token"
+auth.token = "111"
+
+# 额外字段
+user = "aaaa"
+
+# 隧道配置
+[[visitors]]
+name = "og_new_visitor"
+type = "stcp"
+serverName = "og_new"
+secretKey = "w$"
+bindAddr = "127.0.0.1"
+bindPort = 3000
