@@ -315,12 +315,14 @@ function ServerSettings ({
   const serverIpType = Form.useWatch('ipType', form) || serverFormInitialValues.ipType
 
   const filteredServers = useMemo(() => {
-    if (!searchText.trim()) return servers
     const keyword = searchText.trim().toLowerCase()
-    return servers.filter((s) =>
-      (s.name || '').toLowerCase().includes(keyword) ||
-      s.ip.toLowerCase().includes(keyword)
-    )
+    const list = keyword
+      ? servers.filter((s) =>
+        (s.name || '').toLowerCase().includes(keyword) ||
+        s.ip.toLowerCase().includes(keyword)
+      )
+      : servers
+    return [...list].sort((a, b) => (b.enabled !== false) - (a.enabled !== false))
   }, [servers, searchText])
 
   const openCreateModal = () => {
@@ -634,13 +636,15 @@ function TunnelSettings ({
   const getServerById = (serverId) => servers.find((server) => server.id === serverId)
 
   const filteredTunnels = useMemo(() => {
-    if (!searchText.trim()) return tunnels
     const keyword = searchText.trim().toLowerCase()
-    return tunnels.filter((t) =>
-      t.name.toLowerCase().includes(keyword) ||
-      t.type.toLowerCase().includes(keyword)
-    )
-  }, [tunnels, searchText])
+    const list = keyword
+      ? tunnels.filter((t) =>
+        t.name.toLowerCase().includes(keyword) ||
+        t.type.toLowerCase().includes(keyword)
+      )
+      : tunnels
+    return [...list].sort((a, b) => Boolean(runningTunnels[b.key]) - Boolean(runningTunnels[a.key]))
+  }, [tunnels, searchText, runningTunnels])
 
   const enabledServers = useMemo(() => servers.filter((s) => s.enabled !== false), [servers])
 
