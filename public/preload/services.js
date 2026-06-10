@@ -16,6 +16,40 @@ function getFrpcBinDir () {
   return path.join(getUserDataPath(), 'frp-multi-node')
 }
 
+function getPidFilePath () {
+  return path.join(getFrpcBinDir(), 'frpc_pids.json')
+}
+
+function loadPidMap () {
+  try {
+    const raw = fs.readFileSync(getPidFilePath(), { encoding: 'utf-8' })
+    return JSON.parse(raw)
+  } catch {
+    return {}
+  }
+}
+
+function savePidMap (pidMap) {
+  const basePath = getFrpcBinDir()
+  if (!fs.existsSync(basePath)) {
+    fs.mkdirSync(basePath, { recursive: true })
+  }
+  fs.writeFileSync(getPidFilePath(), JSON.stringify(pidMap, null, 2), { encoding: 'utf-8' })
+}
+
+function isProcessAlive (pid) {
+  try {
+    if (isWin32) {
+      const result = execSync(`tasklist /FI "PID eq ${pid}" /NH`, { encoding: 'utf-8', windowsHide: true })
+      return result.includes(String(pid))
+    }
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
 function getFrpcPath () {
   const frpcPath = path.join(getFrpcBinDir(), frpcBinName)
 
@@ -24,6 +58,26 @@ function getFrpcPath () {
   }
 
   throw new Error('未找到 ' + frpcBinName)
+}
+
+function killProcessByPid (pid) {
+  try {
+    if (isWin32) {
+      execSync(`taskkill /pid ${pid} /T /F`, { windowsHide: true })
+    } else if (isMacOS) {
+      process.kill(pid, 'SIGTERM')
+      setTimeout(() => { try { process.kill(pid, 'SIGKILL') } catch {} }, 3000)
+    } else {
+      try { process.kill(-pid, 'SIGTERM') } catch { process.kill(pid, 'SIGTERM') }
+      setTimeout(() => {
+        try { process.kill(-pid, 'SIGKILL') } catch {}
+        try { process.kill(pid, 'SIGKILL') } catch {}
+      }, 3000)
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 function pushFrpcLog (processInfo, text) {
@@ -85,19 +139,21 @@ window.services = {
   startFrpcTunnel (tunnelKey, content, fileName = 'frpc.toml') {
     const existingProcess = frpcProcesses.get(tunnelKey)
 
-    if (existingProcess?.child && !existingProcess.child.killed && existingProcess.code === null) {
+    if (existingProcess?.pid && isProcessAlive(existingProcess.pid)) {
       return {
-        pid: existingProcess.child.pid,
+        pid: existingProcess.pid,
         running: true
       }
     }
 
     const basePath = getFrpcBinDir()
+    if (!fs.existsSync(basePath)) {
+      fs.mkdirSync(basePath, { recursive: true })
+    }
     const configPath = path.join(basePath, fileName)
     const frpcPath = getFrpcPath()
     const processInfo = {
-      child: null,
-      code: null,
+      pid: null,
       logs: []
     }
 
@@ -107,31 +163,32 @@ window.services = {
     const child = spawn(frpcPath, ['-c', configPath], {
       cwd: basePath,
       windowsHide: isWin32,
-      detached: !isWin32
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe']
     })
+    child.unref()
 
-    processInfo.child = child
+    processInfo.pid = child.pid
     frpcProcesses.set(tunnelKey, processInfo)
+
+    const pidMap = loadPidMap()
+    pidMap[tunnelKey] = child.pid
+    savePidMap(pidMap)
 
     child.stdout.on('data', (data) => pushFrpcLog(processInfo, data))
     child.stderr.on('data', (data) => pushFrpcLog(processInfo, data))
-    child.on('error', (error) => pushFrpcLog(processInfo, `启动失败：${error.message}`))
-    child.on('spawn', () => {
-      const tryDelete = (retries) => {
-        setTimeout(() => {
-          try {
-            fs.unlinkSync(configPath)
-            pushFrpcLog(processInfo, `已清理配置文件：${configPath}`)
-          } catch {
-            if (retries > 0) tryDelete(retries - 1)
-          }
-        }, 1000)
-      }
-      tryDelete(3)
+    child.on('error', (error) => {
+      pushFrpcLog(processInfo, `启动失败：${error.message}`)
+      const pm = loadPidMap()
+      delete pm[tunnelKey]
+      savePidMap(pm)
     })
     child.on('close', (code) => {
-      processInfo.code = code
+      processInfo.pid = null
       pushFrpcLog(processInfo, `进程已退出，退出码：${code}`)
+      const pm = loadPidMap()
+      delete pm[tunnelKey]
+      savePidMap(pm)
       try { fs.unlinkSync(configPath) } catch {}
     })
 
@@ -142,43 +199,42 @@ window.services = {
   },
   stopFrpcTunnel (tunnelKey) {
     const processInfo = frpcProcesses.get(tunnelKey)
+    const pid = processInfo?.pid
 
-    if (!processInfo?.child || processInfo.child.killed) {
-      return {
-        running: false
-      }
+    if (pid) {
+      killProcessByPid(pid)
+      pushFrpcLog(processInfo, '已请求停止进程')
+      processInfo.pid = null
     }
 
-    if (isWin32) {
-      try {
-        execSync(`taskkill /pid ${processInfo.child.pid} /T /F`, { windowsHide: true })
-      } catch {
-        processInfo.child.kill()
-      }
-    } else if (isMacOS) {
-      // macOS: SIGTERM 后 3 秒未退出则 SIGKILL 强杀
-      processInfo.child.kill('SIGTERM')
-      setTimeout(() => {
-        try { processInfo.child.kill('SIGKILL') } catch {}
-      }, 3000)
-    } else {
-      // Linux: 通过进程组 ID 终止整棵进程树
-      try {
-        process.kill(-processInfo.child.pid, 'SIGTERM')
-      } catch {
-        processInfo.child.kill('SIGTERM')
-      }
-      setTimeout(() => {
-        try { process.kill(-processInfo.child.pid, 'SIGKILL') } catch {}
-        try { processInfo.child.kill('SIGKILL') } catch {}
-      }, 3000)
-    }
+    const pidMap = loadPidMap()
+    delete pidMap[tunnelKey]
+    savePidMap(pidMap)
 
-    pushFrpcLog(processInfo, '已请求停止进程')
-
-    return {
-      running: false
+    return { running: false }
+  },
+  stopAllTunnels () {
+    const pidMap = loadPidMap()
+    for (const [tunnelKey, pid] of Object.entries(pidMap)) {
+      killProcessByPid(pid)
+      const processInfo = frpcProcesses.get(tunnelKey)
+      if (processInfo) processInfo.pid = null
     }
+    savePidMap({})
+  },
+  restoreRunningTunnels () {
+    const pidMap = loadPidMap()
+    const result = {}
+    for (const [tunnelKey, pid] of Object.entries(pidMap)) {
+      if (isProcessAlive(pid)) {
+        frpcProcesses.set(tunnelKey, { pid, logs: [] })
+        result[tunnelKey] = true
+      } else {
+        delete pidMap[tunnelKey]
+      }
+    }
+    savePidMap(pidMap)
+    return result
   },
   getFrpcTunnelLog (tunnelKey) {
     const processInfo = frpcProcesses.get(tunnelKey)
@@ -196,8 +252,8 @@ window.services = {
   },
   getFrpcTunnelStatus (tunnelKey) {
     const processInfo = frpcProcesses.get(tunnelKey)
-
-    return Boolean(processInfo?.child && !processInfo.child.killed && processInfo.code === null)
+    if (!processInfo?.pid) return false
+    return isProcessAlive(processInfo.pid)
   },
   writeImageFile (base64Url) {
     const matchs = /^data:image\/([a-z]{1,20});base64,/i.exec(base64Url)

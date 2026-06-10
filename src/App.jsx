@@ -40,14 +40,14 @@ const { Header, Sider, Content } = Layout
 const { Title, Text } = Typography
 
 const menuItems = [
-  { key: 'tunnel', icon: <AppstoreOutlined />, label: '隧道设置' },
-  { key: 'server', icon: <CloudServerOutlined />, label: '服务端设置' },
+  { key: 'tunnel', icon: <AppstoreOutlined />, label: '隧道管理' },
+  { key: 'server', icon: <CloudServerOutlined />, label: '服务端管理' },
   { key: 'environment', icon: <SettingOutlined />, label: '设置' }
 ]
 
 const pageTitles = {
-  tunnel: '隧道设置',
-  server: '服务端设置',
+  tunnel: '隧道管理',
+  server: '服务端管理',
   environment: '设置'
 }
 
@@ -333,6 +333,10 @@ function ServerSettings ({
   }
 
   const openEditModal = (server) => {
+    if (server.enabled !== false) {
+      messageApi.warning('请关闭后再修改')
+      return
+    }
     setEditingServer(server)
     form.setFieldsValue({
       name: server.name,
@@ -362,6 +366,10 @@ function ServerSettings ({
   }
 
   const handleDeleteServer = (targetServer) => {
+    if (targetServer.enabled !== false) {
+      messageApi.warning('请关闭后再删除')
+      return
+    }
     const removedTunnels = tunnels.filter((tunnel) => tunnel.serverId === targetServer.id)
     const nextServers = servers.filter((server) => server.id !== targetServer.id)
     const nextTunnels = tunnels.filter((tunnel) => tunnel.serverId !== targetServer.id)
@@ -502,8 +510,7 @@ function ServerSettings ({
             <Pagination
               current={currentPage}
               onChange={(page, size) => {
-                if (size !== pageSize) { setPageSize(size); setCurrentPage(1) }
-                else setCurrentPage(page)
+                if (size !== pageSize) { setPageSize(size); setCurrentPage(1) } else setCurrentPage(page)
               }}
               pageSize={pageSize}
               pageSizeOptions={[5, 10, 20, 50]}
@@ -636,15 +643,16 @@ function TunnelSettings ({
   const getServerById = (serverId) => servers.find((server) => server.id === serverId)
 
   const filteredTunnels = useMemo(() => {
+    const enabledServerIds = new Set(servers.filter((s) => s.enabled !== false).map((s) => s.id))
     const keyword = searchText.trim().toLowerCase()
-    const list = keyword
-      ? tunnels.filter((t) =>
-        t.name.toLowerCase().includes(keyword) ||
+    const list = tunnels.filter((t) => {
+      if (!enabledServerIds.has(t.serverId)) return false
+      if (!keyword) return true
+      return t.name.toLowerCase().includes(keyword) ||
         t.type.toLowerCase().includes(keyword)
-      )
-      : tunnels
+    })
     return [...list].sort((a, b) => Boolean(runningTunnels[b.key]) - Boolean(runningTunnels[a.key]))
-  }, [tunnels, searchText, runningTunnels])
+  }, [tunnels, searchText, runningTunnels, servers])
 
   const enabledServers = useMemo(() => servers.filter((s) => s.enabled !== false), [servers])
 
@@ -664,6 +672,10 @@ function TunnelSettings ({
   }
 
   const openEditModal = (tunnel) => {
+    if (runningTunnels[tunnel.key]) {
+      messageApi.warning('请关闭后再修改')
+      return
+    }
     setEditingTunnel(tunnel)
     form.setFieldsValue({
       ...tunnel,
@@ -701,6 +713,10 @@ function TunnelSettings ({
   }
 
   const handleDeleteTunnel = (targetTunnel) => {
+    if (runningTunnels[targetTunnel.key]) {
+      messageApi.warning('请关闭后再删除')
+      return
+    }
     const nextTunnels = tunnels.filter((tunnel) => tunnel.id !== targetTunnel.id)
 
     window.services?.stopFrpcTunnel?.(targetTunnel.key)
@@ -868,8 +884,7 @@ function TunnelSettings ({
                 <Pagination
                   current={currentPage}
                   onChange={(page, size) => {
-                    if (size !== pageSize) { setPageSize(size); setCurrentPage(1) }
-                    else setCurrentPage(page)
+                    if (size !== pageSize) { setPageSize(size); setCurrentPage(1) } else setCurrentPage(page)
                   }}
                   pageSize={pageSize}
                   pageSizeOptions={[5, 10, 20, 50]}
@@ -881,113 +896,113 @@ function TunnelSettings ({
               </div>
             )}
           />
-      <Drawer
-        destroyOnClose
-        extra={
-          <Space>
-            <Button onClick={closeModal}>取消</Button>
-            <Button type='primary' onClick={handleSaveTunnel}>保存</Button>
-          </Space>
-        }
-        onClose={closeModal}
-        open={isModalOpen}
-        title={editingTunnel ? '修改隧道' : '新增隧道'}
-        width={520}
-      >
-        <Form
-          className='server-form'
-          form={form}
-          initialValues={tunnelFormInitialValues}
-          layout='vertical'
-          onValuesChange={handleFormValuesChange}
-        >
-          <Form.Item label='服务端' name='serverId' rules={[{ required: true, message: '请选择服务端' }]}>
-            <Select optionFilterProp='label' options={serverOptions} placeholder='请选择服务端' showSearch />
-          </Form.Item>
-          <div className='tunnel-form-grid'>
-            <Form.Item label='类型' name='type' rules={[{ required: true, message: '请选择类型' }]}>
-              <Select
-                options={[
-                  { label: 'tcp', value: 'tcp' },
-                  { label: 'udp', value: 'udp' },
-                  { label: 'stcp', value: 'stcp' },
-                  { label: 'xtcp', value: 'xtcp' }
-                ]}
-              />
-            </Form.Item>
-            <Form.Item label='名称' name='name' rules={[{ required: true, message: '请输入名称' }]}>
-              <Input placeholder={isProxyForm ? '例如 ssh' : '例如 xxx_visitor'} />
-            </Form.Item>
-          </div>
-          {isProxyForm
-            ? (
-              <>
-                <div className='address-row'>
-                  <Form.Item label='类型' name='localIPType' rules={[{ required: true, message: '请选择类型' }]}>
-                    <Select className='address-type-select' options={addressTypeOptions} onChange={() => form.setFieldValue('localIP', undefined)} />
-                  </Form.Item>
-                  <Form.Item
-                    className='address-input-item'
-                    label='本地地址'
-                    name='localIP'
-                    rules={localIPType === 'domain' ? domainRules : ipRules}
-                  >
-                    <Input placeholder={localIPType === 'domain' ? '例如 frp.example.com' : '例如 127.0.0.1'} />
-                  </Form.Item>
-                  <Form.Item
-                    label='本地端口'
-                    name='localPort'
-                    rules={portRules}
-                  >
-                    <InputNumber className='port-input' controls={false} placeholder='22' />
-                  </Form.Item>
-                </div>
-                <Form.Item
-                  label='远程端口'
-                  name='remotePort'
-                  rules={portRules}
-                >
-                  <InputNumber className='full-width' controls={false} placeholder='6000' />
+          <Drawer
+            destroyOnClose
+            extra={
+              <Space>
+                <Button onClick={closeModal}>取消</Button>
+                <Button type='primary' onClick={handleSaveTunnel}>保存</Button>
+              </Space>
+            }
+            onClose={closeModal}
+            open={isModalOpen}
+            title={editingTunnel ? '修改隧道' : '新增隧道'}
+            width={520}
+          >
+            <Form
+              className='server-form'
+              form={form}
+              initialValues={tunnelFormInitialValues}
+              layout='vertical'
+              onValuesChange={handleFormValuesChange}
+            >
+              <Form.Item label='服务端' name='serverId' rules={[{ required: true, message: '请选择服务端' }]}>
+                <Select optionFilterProp='label' options={serverOptions} placeholder='请选择服务端' showSearch />
+              </Form.Item>
+              <div className='tunnel-form-grid'>
+                <Form.Item label='类型' name='type' rules={[{ required: true, message: '请选择类型' }]}>
+                  <Select
+                    options={[
+                      { label: 'tcp', value: 'tcp' },
+                      { label: 'udp', value: 'udp' },
+                      { label: 'stcp', value: 'stcp' },
+                      { label: 'xtcp', value: 'xtcp' }
+                    ]}
+                  />
                 </Form.Item>
-              </>
-              )
-            : (
-              <>
-                <div className='tunnel-form-grid'>
-                  <Form.Item label='服务名' name='serviceName' rules={[{ required: true, message: '请输入服务名' }]}>
-                    <Input placeholder='例如 xxx' />
-                  </Form.Item>
-                  <Form.Item label='秘钥' name='secretKey' rules={[{ required: true, message: '请输入秘钥' }]}>
-                    <Input.Password autoComplete='new-password' placeholder='请输入 secretKey' />
-                  </Form.Item>
-                </div>
-                <div className='address-row'>
-                  <Form.Item label='类型' name='bindAddrType' rules={[{ required: true, message: '请选择类型' }]}>
-                    <Select className='address-type-select' options={addressTypeOptions} onChange={() => form.setFieldValue('bindAddr', undefined)} />
-                  </Form.Item>
-                  <Form.Item
-                    className='address-input-item'
-                    label='绑定地址'
-                    name='bindAddr'
-                    rules={bindAddrType === 'domain' ? domainRules : ipRules}
-                  >
-                    <Input placeholder={bindAddrType === 'domain' ? '例如 frp.example.com' : '例如 127.0.0.1'} />
-                  </Form.Item>
-                  <Form.Item
-                    label='绑定端口'
-                    name='bindPort'
-                    rules={portRules}
-                  >
-                    <InputNumber className='port-input' controls={false} placeholder='3000' />
-                  </Form.Item>
-                </div>
-              </>
-              )}
-        </Form>
-      </Drawer>
-      <Drawer extra={<Space><Button disabled={!logModal.tunnelKey} onClick={clearLog}>清空日志</Button><Button onClick={closeLogModal}>关闭</Button></Space>} onClose={closeLogModal} open={logModal.open} title={logModal.title} width={560}>
-        <pre className='log-content'>{logModal.content}</pre>
-      </Drawer>
+                <Form.Item label='名称' name='name' rules={[{ required: true, message: '请输入名称' }]}>
+                  <Input placeholder={isProxyForm ? '例如 ssh' : '例如 xxx_visitor'} />
+                </Form.Item>
+              </div>
+              {isProxyForm
+                ? (
+                  <>
+                    <div className='address-row'>
+                      <Form.Item label='类型' name='localIPType' rules={[{ required: true, message: '请选择类型' }]}>
+                        <Select className='address-type-select' options={addressTypeOptions} onChange={() => form.setFieldValue('localIP', undefined)} />
+                      </Form.Item>
+                      <Form.Item
+                        className='address-input-item'
+                        label='本地地址'
+                        name='localIP'
+                        rules={localIPType === 'domain' ? domainRules : ipRules}
+                      >
+                        <Input placeholder={localIPType === 'domain' ? '例如 frp.example.com' : '例如 127.0.0.1'} />
+                      </Form.Item>
+                      <Form.Item
+                        label='本地端口'
+                        name='localPort'
+                        rules={portRules}
+                      >
+                        <InputNumber className='port-input' controls={false} placeholder='22' />
+                      </Form.Item>
+                    </div>
+                    <Form.Item
+                      label='远程端口'
+                      name='remotePort'
+                      rules={portRules}
+                    >
+                      <InputNumber className='full-width' controls={false} placeholder='6000' />
+                    </Form.Item>
+                  </>
+                  )
+                : (
+                  <>
+                    <div className='tunnel-form-grid'>
+                      <Form.Item label='服务名' name='serviceName' rules={[{ required: true, message: '请输入服务名' }]}>
+                        <Input placeholder='例如 xxx' />
+                      </Form.Item>
+                      <Form.Item label='秘钥' name='secretKey' rules={[{ required: true, message: '请输入秘钥' }]}>
+                        <Input.Password autoComplete='new-password' placeholder='请输入 secretKey' />
+                      </Form.Item>
+                    </div>
+                    <div className='address-row'>
+                      <Form.Item label='类型' name='bindAddrType' rules={[{ required: true, message: '请选择类型' }]}>
+                        <Select className='address-type-select' options={addressTypeOptions} onChange={() => form.setFieldValue('bindAddr', undefined)} />
+                      </Form.Item>
+                      <Form.Item
+                        className='address-input-item'
+                        label='绑定地址'
+                        name='bindAddr'
+                        rules={bindAddrType === 'domain' ? domainRules : ipRules}
+                      >
+                        <Input placeholder={bindAddrType === 'domain' ? '例如 frp.example.com' : '例如 127.0.0.1'} />
+                      </Form.Item>
+                      <Form.Item
+                        label='绑定端口'
+                        name='bindPort'
+                        rules={portRules}
+                      >
+                        <InputNumber className='port-input' controls={false} placeholder='3000' />
+                      </Form.Item>
+                    </div>
+                  </>
+                  )}
+            </Form>
+          </Drawer>
+          <Drawer extra={<Space><Button disabled={!logModal.tunnelKey} onClick={clearLog}>清空日志</Button><Button onClick={closeLogModal}>关闭</Button></Space>} onClose={closeLogModal} open={logModal.open} title={logModal.title} width={560}>
+            <pre className='log-content'>{logModal.content}</pre>
+          </Drawer>
         </div>
       </div>
     </div>
@@ -1116,6 +1131,10 @@ export default function App () {
 
   useEffect(() => {
     try { window.services?.cleanupOrphanedConfigs?.() } catch {}
+    try {
+      const result = window.services?.restoreRunningTunnels?.()
+      if (result) setRunningTunnels(result)
+    } catch {}
   }, [])
 
   useEffect(() => {
@@ -1123,10 +1142,18 @@ export default function App () {
 
     window.utools.onPluginEnter((action) => {
       if (pageTitles[action.code]) setRoute(action.code)
+      try {
+        const result = window.services?.restoreRunningTunnels?.()
+        if (result) setRunningTunnels(result)
+      } catch {}
     })
 
-    window.utools.onPluginOut(() => {
-      try { window.services?.cleanupOrphanedConfigs?.() } catch {}
+    window.utools.onPluginOut((isKill) => {
+      if (isKill) {
+        try { window.services?.stopAllTunnels?.() } catch { }
+      } else {
+        try { window.services?.cleanupOrphanedConfigs?.() } catch { }
+      }
     })
   }, [])
 
