@@ -4,7 +4,7 @@
   "description": "管理多个 FRP 客户端连接，配置服务端和隧道，生成 frpc.toml 并启动隧道",
   "main": "index.html",
   "preload": "preload/services.js",
-  "logo": "my-logo.png",
+  "logo": "logo.png",
   "development": {
     "main": "http://localhost:5173"
   },

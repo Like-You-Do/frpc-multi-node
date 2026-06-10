@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AppstoreOutlined,
   CloudServerOutlined,
@@ -9,6 +9,7 @@ import {
   MenuFoldOutlined,
   MenuUnfoldOutlined,
   PlusOutlined,
+  SearchOutlined,
   SettingOutlined,
   SwapOutlined
 } from '@ant-design/icons'
@@ -22,6 +23,7 @@ import {
   InputNumber,
   Layout,
   Menu,
+  Pagination,
   Popconfirm,
   Select,
   Space,
@@ -245,28 +247,6 @@ function buildFrpcToml (server, tunnels = []) {
   return lines.join('\n')
 }
 
-function writeServerFrpcToml (server, allTunnels) {
-  const serverTunnels = allTunnels.filter((tunnel) => tunnel.serverId === server.id)
-  const content = buildFrpcToml(server, serverTunnels)
-  const writeFile = window.services?.writeFrpcToml
-
-  if (writeFile) {
-    return writeFile(content, server.configFile)
-  }
-
-  window.localStorage.setItem(server.configFile, content)
-  return `localStorage:${server.configFile}`
-}
-
-function deleteServerFrpcToml (server) {
-  const deleteFile = window.services?.deleteFrpcToml
-
-  if (deleteFile) return deleteFile(server.configFile)
-
-  window.localStorage.removeItem(server.configFile)
-  return `localStorage:${server.configFile}`
-}
-
 function createServerFromValues (values, existingServer) {
   const id = existingServer?.id || createId('server')
   const ip = values.ip.trim()
@@ -318,9 +298,7 @@ function createTunnelFromValues (values, existingTunnel) {
 }
 
 function ServerSettings ({
-  configPath,
   messageApi,
-  persistServerConfig,
   runningTunnels,
   servers,
   setRunningTunnels,
@@ -331,7 +309,19 @@ function ServerSettings ({
   const [form] = Form.useForm()
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingServer, setEditingServer] = useState(null)
+  const [searchText, setSearchText] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(5)
   const serverIpType = Form.useWatch('ipType', form) || serverFormInitialValues.ipType
+
+  const filteredServers = useMemo(() => {
+    if (!searchText.trim()) return servers
+    const keyword = searchText.trim().toLowerCase()
+    return servers.filter((s) =>
+      (s.name || '').toLowerCase().includes(keyword) ||
+      s.ip.toLowerCase().includes(keyword)
+    )
+  }, [servers, searchText])
 
   const openCreateModal = () => {
     setEditingServer(null)
@@ -366,7 +356,6 @@ function ServerSettings ({
       : [...servers, nextServer]
 
     setServers(nextServers)
-    persistServerConfig(nextServer, tunnels)
     closeModal()
   }
 
@@ -387,8 +376,7 @@ function ServerSettings ({
     })
     setServers(nextServers)
     setTunnels(nextTunnels)
-    deleteServerFrpcToml(targetServer)
-    messageApi.success(`已删除 ${targetServer.configFile}`)
+    messageApi.success('已删除服务端')
   }
 
   const handleToggleServer = (targetServer, enabled) => {
@@ -411,7 +399,6 @@ function ServerSettings ({
       })
       messageApi.success('已禁用服务端并停止相关隧道')
     } else {
-      persistServerConfig({ ...targetServer, enabled }, tunnels)
       messageApi.success('已启用服务端')
     }
   }
@@ -437,13 +424,12 @@ function ServerSettings ({
       title: 'Token',
       dataIndex: 'token',
       key: 'token',
-      ellipsis: true
-    },
-    {
-      title: '配置文件',
-      dataIndex: 'configFile',
-      key: 'configFile',
-      ellipsis: true
+      ellipsis: true,
+      render: (token) => {
+        if (!token) return ''
+        if (token.length <= 2) return '*'.repeat(token.length)
+        return token[0] + '*'.repeat(token.length - 2) + token[token.length - 1]
+      }
     },
     {
       title: '操作',
@@ -471,7 +457,7 @@ function ServerSettings ({
             cancelText='取消'
             okText='删除'
             onConfirm={() => handleDeleteServer(server)}
-            title='删除服务端会移除对应隧道和配置文件，确定继续吗？'
+            title='删除服务端会移除对应隧道，确定继续吗？'
           >
             <Tooltip title='删除'>
               <Button
@@ -494,17 +480,43 @@ function ServerSettings ({
       <div className='page-toolbar'>
         <div>
           <Title level={3}>服务端设置</Title>
-          {/* <Text type='secondary'>每条服务端记录独立维护一个 frpc_id.toml。</Text> */}
-          {/* {configPath && <div className='config-path'>最近配置：{configPath}</div>} */}
         </div>
-        <Button type='primary' icon={<CloudServerOutlined />} onClick={openCreateModal}>新增服务端</Button>
+        <div className='toolbar-actions'>
+          <Input
+            allowClear
+            className='search-input'
+            placeholder='搜索名称、IP地址…'
+            prefix={<SearchOutlined />}
+            value={searchText}
+            onChange={(e) => { setSearchText(e.target.value); setCurrentPage(1) }}
+          />
+          <Button type='primary' icon={<CloudServerOutlined />} onClick={openCreateModal}>新增服务端</Button>
+        </div>
       </div>
       <Table
         bordered
         columns={columns}
-        dataSource={servers}
+        dataSource={filteredServers.slice((currentPage - 1) * pageSize, currentPage * pageSize)}
         pagination={false}
         scroll={{ x: 'max-content' }}
+        size='small'
+        title={() => (
+          <div className='table-top-panel'>
+            <Pagination
+              current={currentPage}
+              onChange={(page, size) => {
+                if (size !== pageSize) { setPageSize(size); setCurrentPage(1) }
+                else setCurrentPage(page)
+              }}
+              pageSize={pageSize}
+              pageSizeOptions={[5, 10, 20, 50]}
+              showSizeChanger
+              showTotal={(total) => `共 ${total} 条`}
+              size='small'
+              total={filteredServers.length}
+            />
+          </div>
+        )}
       />
       <Drawer
         destroyOnClose
@@ -600,9 +612,7 @@ function ServerSettings ({
 }
 
 function TunnelSettings ({
-  configPath,
   messageApi,
-  persistServerConfig,
   runningTunnels,
   servers,
   setRunningTunnels,
@@ -613,6 +623,10 @@ function TunnelSettings ({
   const [isModalOpen, setIsModalOpen] = useState(false)
   const [editingTunnel, setEditingTunnel] = useState(null)
   const [logModal, setLogModal] = useState({ content: '', open: false, title: '' })
+  const [searchText, setSearchText] = useState('')
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(5)
+  const [selectedServerId, setSelectedServerId] = useState(null)
   const selectedType = Form.useWatch('type', form) || tunnelFormInitialValues.type
   const isProxyForm = isProxyTunnel(selectedType)
   const localIPType = Form.useWatch('localIPType', form) || tunnelFormInitialValues.localIPType
@@ -624,12 +638,28 @@ function TunnelSettings ({
 
   const getServerById = (serverId) => servers.find((server) => server.id === serverId)
 
+  const filteredTunnels = useMemo(() => {
+    if (!searchText.trim()) return tunnels
+    const keyword = searchText.trim().toLowerCase()
+    return tunnels.filter((t) =>
+      t.name.toLowerCase().includes(keyword) ||
+      t.type.toLowerCase().includes(keyword)
+    )
+  }, [tunnels, searchText])
+
+  const enabledServers = useMemo(() => servers.filter((s) => s.enabled !== false), [servers])
+
+  const filteredTunnelsByServer = useMemo(() => {
+    if (!selectedServerId) return filteredTunnels
+    return filteredTunnels.filter((t) => t.serverId === selectedServerId)
+  }, [filteredTunnels, selectedServerId])
+
   const openCreateModal = () => {
     setEditingTunnel(null)
     form.resetFields()
     form.setFieldsValue({
       ...tunnelFormInitialValues,
-      serverId: servers[0]?.id
+      serverId: selectedServerId || servers[0]?.id
     })
     setIsModalOpen(true)
   }
@@ -666,20 +696,13 @@ function TunnelSettings ({
     const nextTunnels = editingTunnel
       ? tunnels.map((tunnel) => tunnel.id === editingTunnel.id ? nextTunnel : tunnel)
       : [...tunnels, nextTunnel]
-    const nextServer = getServerById(nextTunnel.serverId)
-    const previousServer = editingTunnel && editingTunnel.serverId !== nextTunnel.serverId
-      ? getServerById(editingTunnel.serverId)
-      : null
 
     setTunnels(nextTunnels)
-    if (nextServer) persistServerConfig(nextServer, nextTunnels)
-    if (previousServer) persistServerConfig(previousServer, nextTunnels)
     closeModal()
   }
 
   const handleDeleteTunnel = (targetTunnel) => {
     const nextTunnels = tunnels.filter((tunnel) => tunnel.id !== targetTunnel.id)
-    const server = getServerById(targetTunnel.serverId)
 
     window.services?.stopFrpcTunnel?.(targetTunnel.key)
     setRunningTunnels((current) => {
@@ -688,7 +711,6 @@ function TunnelSettings ({
       return nextRunningTunnels
     })
     setTunnels(nextTunnels)
-    if (server) persistServerConfig(server, nextTunnels)
   }
 
   const handleToggleTunnel = (tunnel, checked) => {
@@ -713,9 +735,8 @@ function TunnelSettings ({
 
     try {
       if (checked) {
-        const serverTunnels = tunnels.filter((item) => item.serverId === server.id)
-        const content = buildFrpcToml(server, serverTunnels)
-        startTunnel(tunnel.key, content, server.configFile)
+        const content = buildFrpcToml(server, [tunnel])
+        startTunnel(tunnel.key, content, `frpc_${tunnel.id}.toml`)
         setRunningTunnels((current) => ({ ...current, [tunnel.key]: true }))
         messageApi.success('隧道已启动')
         return
@@ -750,16 +771,8 @@ function TunnelSettings ({
       title: '类型',
       dataIndex: 'type',
       key: 'type',
+      width: 50,
       render: (type) => <Tag>{type}</Tag>
-    },
-    {
-      title: '服务端',
-      dataIndex: 'serverId',
-      key: 'serverId',
-      render: (serverId) => {
-        const server = getServerById(serverId)
-        return server ? `${server.ip}:${server.port}` : <Text type='secondary'>未绑定</Text>
-      }
     },
     { title: '名称', dataIndex: 'name', key: 'name' },
     {
@@ -815,16 +828,60 @@ function TunnelSettings ({
   ]
 
   return (
-    <div className='page-stack'>
-      <div className='page-toolbar'>
-        <div>
-          <Title level={3}>隧道设置</Title>
-          <Text type='secondary'>新增隧道时选择服务端</Text>
-          {/* {configPath && <div className='config-path'>最近配置：{configPath}</div>} */}
-        </div>
-        <Button disabled={!servers.length} type='primary' icon={<PlusOutlined />} onClick={openCreateModal}>新增隧道</Button>
+    <div className='tunnel-split-panel'>
+      <div className='tunnel-server-filter'>
+        <div className='server-filter-title'>服务端</div>
+        <Menu
+          items={[
+            { key: 'all', label: `全部 (${tunnels.length})` },
+            ...enabledServers.map((s) => ({
+              key: s.id,
+              label: `${s.name} (${tunnels.filter((t) => t.serverId === s.id).length})`
+            }))
+          ]}
+          mode='inline'
+          onClick={({ key }) => { setSelectedServerId(key === 'all' ? null : key); setCurrentPage(1) }}
+          selectedKeys={[selectedServerId || 'all']}
+        />
       </div>
-      <Table bordered columns={columns} dataSource={tunnels} pagination={false} scroll={{ x: 'max-content' }} />
+      <div className='tunnel-main-content'>
+        <div className='page-stack'>
+          <div className='toolbar-actions'>
+            <Input
+              allowClear
+              className='search-input'
+              placeholder='搜索名称、类型…'
+              prefix={<SearchOutlined />}
+              value={searchText}
+              onChange={(e) => { setSearchText(e.target.value); setCurrentPage(1) }}
+            />
+            <Button disabled={!servers.length} type='primary' icon={<PlusOutlined />} onClick={openCreateModal}>新增隧道</Button>
+          </div>
+          <Table
+            bordered
+            columns={columns}
+            dataSource={filteredTunnelsByServer.slice((currentPage - 1) * pageSize, currentPage * pageSize)}
+            pagination={false}
+            scroll={{ x: 'max-content' }}
+            size='small'
+            title={() => (
+              <div className='table-top-panel'>
+                <Pagination
+                  current={currentPage}
+                  onChange={(page, size) => {
+                    if (size !== pageSize) { setPageSize(size); setCurrentPage(1) }
+                    else setCurrentPage(page)
+                  }}
+                  pageSize={pageSize}
+                  pageSizeOptions={[5, 10, 20, 50]}
+                  showSizeChanger
+                  showTotal={(total) => `共 ${total} 条`}
+                  size='small'
+                  total={filteredTunnelsByServer.length}
+                />
+              </div>
+            )}
+          />
       <Drawer
         destroyOnClose
         extra={
@@ -846,7 +903,7 @@ function TunnelSettings ({
           onValuesChange={handleFormValuesChange}
         >
           <Form.Item label='服务端' name='serverId' rules={[{ required: true, message: '请选择服务端' }]}>
-            <Select options={serverOptions} placeholder='请选择服务端' />
+            <Select optionFilterProp='label' options={serverOptions} placeholder='请选择服务端' showSearch />
           </Form.Item>
           <div className='tunnel-form-grid'>
             <Form.Item label='类型' name='type' rules={[{ required: true, message: '请选择类型' }]}>
@@ -860,7 +917,7 @@ function TunnelSettings ({
               />
             </Form.Item>
             <Form.Item label='名称' name='name' rules={[{ required: true, message: '请输入名称' }]}>
-              <Input placeholder={isProxyForm ? '例如 ssh' : '例如 og_new_visitor'} />
+              <Input placeholder={isProxyForm ? '例如 ssh' : '例如 xxx_visitor'} />
             </Form.Item>
           </div>
           {isProxyForm
@@ -899,7 +956,7 @@ function TunnelSettings ({
               <>
                 <div className='tunnel-form-grid'>
                   <Form.Item label='服务名' name='serviceName' rules={[{ required: true, message: '请输入服务名' }]}>
-                    <Input placeholder='例如 og_new' />
+                    <Input placeholder='例如 xxx' />
                   </Form.Item>
                   <Form.Item label='秘钥' name='secretKey' rules={[{ required: true, message: '请输入秘钥' }]}>
                     <Input.Password autoComplete='new-password' placeholder='请输入 secretKey' />
@@ -932,6 +989,8 @@ function TunnelSettings ({
       <Drawer extra={<Space><Button disabled={!logModal.tunnelKey} onClick={clearLog}>清空日志</Button><Button onClick={closeLogModal}>关闭</Button></Space>} onClose={closeLogModal} open={logModal.open} title={logModal.title} width={560}>
         <pre className='log-content'>{logModal.content}</pre>
       </Drawer>
+        </div>
+      </div>
     </div>
   )
 }
@@ -962,8 +1021,11 @@ function EnvironmentSettings ({ messageApi }) {
       const dialogOptions = {
         properties: ['openFile']
       }
-      if (navigator.platform?.includes('Win')) {
+      const platform = navigator.platform || ''
+      if (platform.includes('Win')) {
         dialogOptions.filters = [{ name: '可执行文件', extensions: ['exe'] }]
+      } else if (platform.includes('Mac')) {
+        dialogOptions.filters = [{ name: 'Unix可执行文件', extensions: [''] }]
       }
       const result = await window.utools.showOpenDialog(dialogOptions)
       if (!result || !result.length) return
@@ -1049,26 +1111,23 @@ export default function App () {
   const [servers, setServers] = useState(() => loadPersistedState('frpc_servers') || initialServers)
   const [tunnels, setTunnels] = useState(() => loadPersistedState('frpc_tunnels') || initialTunnels)
   const [runningTunnels, setRunningTunnels] = useState({})
-  const [configPath, setConfigPath] = useState('')
 
   useEffect(() => { persistState('frpc_servers', servers) }, [servers])
   useEffect(() => { persistState('frpc_tunnels', tunnels) }, [tunnels])
 
-  const persistServerConfig = (server, allTunnels) => {
-    try {
-      const filePath = writeServerFrpcToml(server, allTunnels)
-      setConfigPath(filePath)
-      messageApi.success(`已写入 ${filePath}`)
-    } catch (error) {
-      messageApi.error(`写入 ${server.configFile} 失败：${error.message}`)
-    }
-  }
+  useEffect(() => {
+    try { window.services?.cleanupOrphanedConfigs?.() } catch {}
+  }, [])
 
   useEffect(() => {
     if (!window.utools?.onPluginEnter) return
 
     window.utools.onPluginEnter((action) => {
       if (pageTitles[action.code]) setRoute(action.code)
+    })
+
+    window.utools.onPluginOut(() => {
+      try { window.services?.cleanupOrphanedConfigs?.() } catch {}
     })
   }, [])
 
@@ -1096,7 +1155,7 @@ export default function App () {
     >
       {contextHolder}
       <Layout className='app-layout'>
-        <Sider collapsed={collapsed} collapsedWidth={72} trigger={null} width={220}>
+        <Sider collapsed={collapsed} collapsedWidth={72} trigger={null} width={160}>
           <div className='brand'>
             <CloudServerOutlined />
             {!collapsed && <span>FRP 多节点</span>}
@@ -1115,9 +1174,7 @@ export default function App () {
           </Header>
           <Content className='app-content'>
             {renderPage(route, {
-              configPath,
               messageApi,
-              persistServerConfig,
               runningTunnels,
               servers,
               setRunningTunnels,

@@ -5,6 +5,7 @@ const { execSync, spawn } = require('node:child_process')
 const frpcProcesses = new Map()
 
 const isWin32 = process.platform === 'win32'
+const isMacOS = process.platform === 'darwin'
 const frpcBinName = isWin32 ? 'frpc.exe' : 'frpc'
 
 function getUserDataPath () {
@@ -64,6 +65,23 @@ window.services = {
     }
     return filePath
   },
+  cleanupOrphanedConfigs () {
+    const basePath = getFrpcBinDir()
+    if (!fs.existsSync(basePath)) return 0
+    let count = 0
+    try {
+      const files = fs.readdirSync(basePath)
+      files.forEach((file) => {
+        if (file.startsWith('frpc_') && file.endsWith('.toml')) {
+          try {
+            fs.unlinkSync(path.join(basePath, file))
+            count++
+          } catch {}
+        }
+      })
+    } catch {}
+    return count
+  },
   startFrpcTunnel (tunnelKey, content, fileName = 'frpc.toml') {
     const existingProcess = frpcProcesses.get(tunnelKey)
 
@@ -88,7 +106,8 @@ window.services = {
 
     const child = spawn(frpcPath, ['-c', configPath], {
       cwd: basePath,
-      windowsHide: isWin32
+      windowsHide: isWin32,
+      detached: !isWin32
     })
 
     processInfo.child = child
@@ -97,9 +116,23 @@ window.services = {
     child.stdout.on('data', (data) => pushFrpcLog(processInfo, data))
     child.stderr.on('data', (data) => pushFrpcLog(processInfo, data))
     child.on('error', (error) => pushFrpcLog(processInfo, `启动失败：${error.message}`))
+    child.on('spawn', () => {
+      const tryDelete = (retries) => {
+        setTimeout(() => {
+          try {
+            fs.unlinkSync(configPath)
+            pushFrpcLog(processInfo, `已清理配置文件：${configPath}`)
+          } catch {
+            if (retries > 0) tryDelete(retries - 1)
+          }
+        }, 1000)
+      }
+      tryDelete(3)
+    })
     child.on('close', (code) => {
       processInfo.code = code
       pushFrpcLog(processInfo, `进程已退出，退出码：${code}`)
+      try { fs.unlinkSync(configPath) } catch {}
     })
 
     return {
@@ -116,7 +149,31 @@ window.services = {
       }
     }
 
-    processInfo.child.kill()
+    if (isWin32) {
+      try {
+        execSync(`taskkill /pid ${processInfo.child.pid} /T /F`, { windowsHide: true })
+      } catch {
+        processInfo.child.kill()
+      }
+    } else if (isMacOS) {
+      // macOS: SIGTERM 后 3 秒未退出则 SIGKILL 强杀
+      processInfo.child.kill('SIGTERM')
+      setTimeout(() => {
+        try { processInfo.child.kill('SIGKILL') } catch {}
+      }, 3000)
+    } else {
+      // Linux: 通过进程组 ID 终止整棵进程树
+      try {
+        process.kill(-processInfo.child.pid, 'SIGTERM')
+      } catch {
+        processInfo.child.kill('SIGTERM')
+      }
+      setTimeout(() => {
+        try { process.kill(-processInfo.child.pid, 'SIGKILL') } catch {}
+        try { processInfo.child.kill('SIGKILL') } catch {}
+      }, 3000)
+    }
+
     pushFrpcLog(processInfo, '已请求停止进程')
 
     return {
