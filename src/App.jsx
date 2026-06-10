@@ -477,21 +477,16 @@ function ServerSettings ({
 
   return (
     <div className='page-stack'>
-      <div className='page-toolbar'>
-        <div>
-          <Title level={3}>服务端设置</Title>
-        </div>
-        <div className='toolbar-actions'>
-          <Input
-            allowClear
-            className='search-input'
-            placeholder='搜索名称、IP地址…'
-            prefix={<SearchOutlined />}
-            value={searchText}
-            onChange={(e) => { setSearchText(e.target.value); setCurrentPage(1) }}
-          />
-          <Button type='primary' icon={<CloudServerOutlined />} onClick={openCreateModal}>新增服务端</Button>
-        </div>
+      <div className='toolbar-actions'>
+        <Input
+          allowClear
+          className='search-input'
+          placeholder='搜索名称、IP地址…'
+          prefix={<SearchOutlined />}
+          value={searchText}
+          onChange={(e) => { setSearchText(e.target.value); setCurrentPage(1) }}
+        />
+        <Button type='primary' icon={<CloudServerOutlined />} onClick={openCreateModal}>新增服务端</Button>
       </div>
       <Table
         bordered
